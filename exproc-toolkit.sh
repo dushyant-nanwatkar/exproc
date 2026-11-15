@@ -5,7 +5,7 @@ umask 077
 cd /
 
 usage() {
-  echo 'Usage: sudo bash exproc-toolkit.sh [usb-reset | change-password | change-master-password]'
+  echo 'Usage: sudo bash exproc-toolkit.sh [usb-reset | change-password]'
 }
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -18,17 +18,16 @@ fi
 
 action=${1:-}
 if [[ -z $action ]]; then
-  printf '%s\n' '1. Reset USB access after an exam' '2. Change proctor password' '3. Change master password'
+  printf '%s\n' '1. Reset USB access after an exam' '2. Change proctor password'
   read -r -p 'Choose an option: ' choice </dev/tty
   case "$choice" in
     1) action=usb-reset ;;
     2) action=change-password ;;
-    3) action=change-master-password ;;
-    *) die 'Choose 1, 2, or 3.' ;;
+    *) die 'Choose 1 or 2.' ;;
   esac
 fi
 case "$action" in
-  usb-reset|change-password|change-master-password) ;;
+  usb-reset|change-password) ;;
   *) usage; exit 2 ;;
 esac
 
@@ -74,7 +73,7 @@ if [[ $action == usb-reset ]]; then
 fi
 
 [[ -t 0 ]] || die 'Open a terminal to change the password.'
-/usr/bin/python3 -I - "$action" "$conf/passwords" <<'PYTHON'
+/usr/bin/python3 -I - "$conf/passwords" <<'PYTHON'
 import getpass
 import hashlib
 import os
@@ -83,22 +82,20 @@ import re
 import sys
 import tempfile
 
-action, credentials = sys.argv[1:]
-path = Path(credentials)
+path = Path(sys.argv[1])
 entries = path.read_text(encoding="ascii").splitlines()
 if len(entries) != 2 or not all(
     re.fullmatch(r"[0-9a-f]{32} [0-9a-f]{64}", entry) for entry in entries
 ):
     sys.exit("Expected the two-password format created by setup.sh.")
 
-index, label = (0, "proctor") if action == "change-password" else (1, "master")
-password = getpass.getpass(f"New {label} password: ")
+password = getpass.getpass("New proctor password: ")
 if not password or len(password) > 4096 or password != getpass.getpass("Confirm new password: "):
     sys.exit("Enter matching, nonempty passwords of at most 4096 characters.")
 
 salt = os.urandom(16)
 digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600_000)
-entries[index] = f"{salt.hex()} {digest.hex()}"
+entries[0] = f"{salt.hex()} {digest.hex()}"
 output = tempfile.NamedTemporaryFile(
     mode="w", encoding="ascii", dir=path.parent, prefix=".passwords-", delete=False
 )
@@ -111,6 +108,6 @@ try:
     os.replace(temporary, path)
 finally:
     temporary.unlink(missing_ok=True)
-print(f"The {label} password was updated.")
+print("The proctor password was updated.")
 PYTHON
 sync -f "$conf"
